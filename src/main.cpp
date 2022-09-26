@@ -36,7 +36,22 @@ int previousKeySum = 0;
 // this doesn't need to be global, but this way I don't have to initialize a new variable every iteration
 int currentKeySum = 0;
 
-char baseLetters[32] = {'0', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x','y', 'z', '-', '-', '-', (char)0xB2 /* BKSP */, (char)0x20 /* SPACE */};
+char baseLetters[32] = {'*', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x','y', 'z', 
+    '-' /*Alt letter mode*/, 
+    '-', 
+    '-', 
+    (char)0xB2 /* BKSP */, 
+    (char)0x20 /* SPACE */
+};
+char altSymbols[32] = {'*', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '!', '@', '#', '$', '%', '^', '&', '*', '(', ')', '{', '}', ';', ':', '.', '?', 
+    '-' /*Alt letter mode*/, 
+    '-', 
+    '-', 
+    (char)0xB2 /* BKSP */, 
+    (char)0x20 /* SPACE */
+};   // still missing <>/\[]"'-=_+|
+bool altSymbolMode = false;     // whether alt mode is enabled or not
+const int ALT_SYMBOL_MODE = 27;
 
 // this list holds the information for each of the 5 finger inputs
 FingerInput fingerInputs[NUM_INPUTS];
@@ -57,6 +72,10 @@ char convertSumToChar(int sum){
     if(sum > 32 || sum < 0){
         Serial.println("ERROR: provided sum out of range; can't convert.");
         return '*';
+    }
+    // if alt symbol mode is enabled, choose from the altSymbols array
+    if(altSymbolMode){
+        return altSymbols[sum];
     }
     return baseLetters[sum];
 }
@@ -87,17 +106,24 @@ void loop() {
     if(getCurrentKeySum() != previousKeySum){
         // then an event has started to occur. Wait for other inputs to settle (because human actions are very slow for computers)
         delay(IO_DELAY);    // TODO: this causes problems if a key is pressed and released before 100 ms has elapsed
-        if(previousKeySum == 0){
-            // then no keys are being pressed and we want to press a key
-            currentKeySum = getCurrentKeySum();
-            Keyboard.press(convertSumToChar(currentKeySum));
-            previousKeySum = currentKeySum;
+        currentKeySum = getCurrentKeySum();
+        // first determine if the combination is activating a different mode
+        if(currentKeySum == ALT_SYMBOL_MODE){
+            // toggle alt symbol mode
+            altSymbolMode = !altSymbolMode;
         }else{
-            // then we want to release a key
-            // this will probably need to change when the keyboard gets more complex
-            Keyboard.releaseAll();
-            // no keys are being pressed, so reset previousKeySum
-            previousKeySum = 0;
+            // if a special mode was not provided, process the input as a keystroke
+            if(previousKeySum == 0 && currentKeySum != 0){
+                // then no keys are being pressed and we want to press a key
+                Keyboard.press(convertSumToChar(currentKeySum));
+                previousKeySum = currentKeySum;
+            }else{
+                // then we want to release a key
+                // this will probably need to change when the keyboard gets more complex
+                Keyboard.releaseAll();
+                // no keys are being pressed, so reset previousKeySum
+                previousKeySum = 0;
+            }
         }
     }
 }
