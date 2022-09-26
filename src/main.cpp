@@ -15,65 +15,55 @@ class FingerInput {
         uint8_t analogPin;  // the analog pin that is assigned to this finger     
         int fingerValue;    // the binary value assigned to this finger
         bool isActive = false;      // whether electricity is flowing to the pin or not
-        uint8_t letter;
-        bool stateNeedsUpdate = false;   // stores whether the state of this input has changed from the previous iteration
 };
 
-// since this script takes control of the keyboard, I want to be able to disable control. The start pin must read LOW before the Arduino can control the keyboard.
+// since this script takes control of the keyboard, I want to be able to disable it. The start pin must read LOW before the Arduino can control the keyboard.
 const int startPin = 13;
 
 // these are the physical GPIO pins on the Arduino Micro
 const int NUM_INPUTS = 5;
-uint8_t fingerPins[NUM_INPUTS] = {A1, A2, A3, A4, A5};
-
-uint8_t letters[NUM_INPUTS] = {'a', 'b', 'c', 'd', 'e'};
+uint8_t fingerPins[NUM_INPUTS] = {A5, A4, A3, A2, A1};
 
 // the resistance thresholds when using 22M ohm resistors
 const int ACTIVE_THRESHOLD_MAX = 200; // this is the maximum reading when the button is pressed. Any reading underneath this value will register as a touch (a higher number will allow inputs with a higher natural resistance at the risk of false positives)
 const int INACTIVE_THRESHOLD_MIN = 300; // this is the minimum reading when there is no connection. Any reading higher than this will register as no longer touching
 
+// the amount of time to wait before sending/stopping keyboard signals
+// a longer value will reduce responsiveness but be more forgiving of mistakes
+const unsigned long IO_DELAY = 100;
+// this stores what the last keypress was so I know when the input changes
+int previousKeySum = 0;
+// this doesn't need to be global, but this way I don't have to initialize a new variable every iteration
+int currentKeySum = 0;
+
+char baseLetters[32] = {'0', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x','y', 'z', '-', '-', '-', (char)0xB2 /* BKSP */, (char)0x20 /* SPACE */};
 
 // this list holds the information for each of the 5 finger inputs
 FingerInput fingerInputs[NUM_INPUTS];
 
-// read from all of the pins and update the finger objects with the proper information
-void updateFingerStates(){
+// sums the finger values in a given moment
+int getCurrentKeySum(){
+    currentKeySum = 0;
     for(int i = 0; i < NUM_INPUTS; i++){
-        // if the current reading of the pin does not match the current "active" state in storage, then mark this input as needing an update
-        if(fingerInputs[i].isActive && analogRead(fingerInputs[i].analogPin) > INACTIVE_THRESHOLD_MIN ){
-            // this means that a key is being pressed, but the pin has stopped receiving electricity. The input and output are out of sync and need an update.
-            fingerInputs[i].isActive = false;
-            fingerInputs[i].stateNeedsUpdate = true;
-        }
-        if(!fingerInputs[i].isActive && analogRead(fingerInputs[i].analogPin) < ACTIVE_THRESHOLD_MAX){
-            // this means that no key is currently being pressed, but the pin has started receiving electricity. The input and output are out of sync and need an update.
-            fingerInputs[i].isActive = true;
-            fingerInputs[i].stateNeedsUpdate = true;
+        if(analogRead(fingerInputs[i].analogPin) < ACTIVE_THRESHOLD_MAX){
+            currentKeySum += fingerInputs[i].fingerValue;
         }
     }
+    return currentKeySum;
 }
 
-// update the keystrokes being sent to the computer based on the current finger configuration
-void updateKeystrokes(){
-    // for each key, press or release keys based on whether the finger is active or not
-    for(int i = 0; i < NUM_INPUTS; i++){
-        // if the state of this input hasn't changed from the previous iteration, it doesn't need an update.
-        if(fingerInputs[i].stateNeedsUpdate){
-            if(fingerInputs[i].isActive){
-                Keyboard.press(fingerInputs[i].letter);
-            }else{
-                Keyboard.release(fingerInputs[i].letter);
-            }
-            // now the state of the pin and the state of the keyboard output are correctly synced. No updates are needed for this input
-            fingerInputs[i].stateNeedsUpdate = false;
-        }
-        
+// converts a summed value into the corresponding character
+char convertSumToChar(int sum){
+    if(sum > 32 || sum < 0){
+        Serial.println("ERROR: provided sum out of range; can't convert.");
+        return '*';
     }
+    return baseLetters[sum];
 }
 
 void setup() {
     Serial.begin(9600);
-    // do nothing until I've confirmed that I want to give the board control of the keyboard
+    // do nothing until I've confirmed that I want to give arduino control of the keyboard
     pinMode(startPin, INPUT_PULLUP);
     while(digitalRead(startPin) == HIGH){
         Serial.println("Waiting for startPin before continuing...");
@@ -88,17 +78,26 @@ void setup() {
     // init each of the fingerInput objects
     for(int i = 0; i < NUM_INPUTS; i++){
         fingerInputs[i].analogPin = fingerPins[i];
-        fingerInputs[i].fingerValue = pow(2, i);    // each finger gets assigned an increasing power of 2
-        fingerInputs[i].letter = letters[i];
+        fingerInputs[i].fingerValue = round(pow(2, i));    // each finger gets assigned an increasing power of 2. round() because pow() works with doubles
     }
-
 }
 
 void loop() {
-    // read and store the current state of each finger
-    updateFingerStates();
-    updateKeystrokes();
-    // if it has changed state from the previous iteration, press or release a key
-    // except instead of pressing the key immediately, start a timer
-    // by the end of the timer, any keys that are currently pressed should be added to get a total value
+    // continuously check each of the finger pins to detect when a change in configuration occurs
+    if(getCurrentKeySum() != previousKeySum){
+        // then an event has started to occur. Wait for other inputs to settle (because human actions are very slow for computers)
+        delay(IO_DELAY);    // TODO: this causes problems if a key is pressed and released before 100 ms has elapsed
+        if(previousKeySum == 0){
+            // then no keys are being pressed and we want to press a key
+            currentKeySum = getCurrentKeySum();
+            Keyboard.press(convertSumToChar(currentKeySum));
+            previousKeySum = currentKeySum;
+        }else{
+            // then we want to release a key
+            // this will probably need to change when the keyboard gets more complex
+            Keyboard.releaseAll();
+            // no keys are being pressed, so reset previousKeySum
+            previousKeySum = 0;
+        }
+    }
 }
