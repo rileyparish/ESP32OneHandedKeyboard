@@ -63,14 +63,17 @@ char specialKeys[32] = {'*', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', K
     KEY_BACKSPACE, 
     ' '
 };
-bool specialKeysMode = false;     // whether alt mode is enabled or not
+bool specialKeysMode = false;
 const int SPECIAL_KEYS_MODE = 28;
 
 // this list holds the information for each of the 5 finger inputs
 FingerInput fingerInputs[NUM_INPUTS];
 
 unsigned long previousTime;
+
 bool stickyMode = false;
+const int STICKY_MODE = 29;
+
 
 // sums the finger values in a given moment
 int getCurrentKeySum(){
@@ -147,7 +150,7 @@ void loop() {
                 specialKeysMode = !specialKeysMode;
                 altSymbolMode = false;
                 previousKeySum = currentKeySum;
-            }else if(currentKeySum == stickyMode){
+            }else if(currentKeySum == STICKY_MODE){
                 // no-op for now until I implement this mode
                 // TODO: implement sticky mode. Not sure if the return on investment is high enough though, tbh
                 stickyMode = !stickyMode;
